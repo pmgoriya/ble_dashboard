@@ -12,6 +12,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  text-align: center; /* Added from the old file */
 }
 
 .container {
@@ -31,10 +32,21 @@ h1 {
   margin: 0;
 }
 
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
 .controls {
   display: flex;
   justify-content: space-between;
   margin-bottom: 20px;
+}
+
+.goat-selector, .fetch-button, .download-button {
+  padding: 10px;
+  font-size: 16px;
 }
 
 .fetch-button {
@@ -70,12 +82,17 @@ h1 {
   font-weight: bold;
 }
 
-.connected {
+.connection-status .connected {
   color: #28a745;
 }
 
-.disconnected {
+.connection-status .disconnected {
   color: #dc3545;
+}
+
+.date-range-picker {
+  display: flex;
+  gap: 10px;
 }
 
 table {
@@ -134,7 +151,6 @@ tr:nth-child(even) {
   padding: 5px;
 }
 
-/* src/App.css */
 .sort-order-selector {
   margin-left: 20px;
 }
@@ -143,12 +159,25 @@ tr:nth-child(even) {
   margin-right: 10px;
 }
 
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
 .total-entries {
   font-weight: bold;
+}
+
+.rdt_Table {
+  overflow-x: auto;
+}
+
+.rdt_TableCol {
+  word-wrap: break-word;
+}
+
+.rdt_TableCell {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+@media screen and (max-width: 600px) {
+  .rdt_Table {
+    font-size: 12px;
+  }
 }

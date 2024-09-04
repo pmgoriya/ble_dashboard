@@ -1,53 +1,225 @@
-// src/App.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import DataTable from 'react-data-table-component';
 import Header from './components/Header';
-import TagSelector from './components/TagSelector';
-import DataViewer from './components/DataViewer';
-import { fetchData, testDynamoDBConnection } from './utils/dataFetcher';
+import GoatSelector from './components/GoatSelector';
+import DateRangePicker from './components/DateRangePicker';
+import { fetchData, testDynamoDBConnection, fetchCSV } from './utils/dataFetcher';
 import './App.css';
 
 function App() {
-  const [selectedTag, setSelectedTag] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [selectedGoat, setSelectedGoat] = useState('');
   const [data, setData] = useState([]);
-  const [totalEntries, setTotalEntries] = useState(0);  // New state for total entries
   const [loading, setLoading] = useState(false);
+  const [totalRows, setTotalRows] = useState(0);
+  const [perPage, setPerPage] = useState(10);
   const [error, setError] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Checking...');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortField] = useState('timestamp');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
 
   useEffect(() => {
     const checkConnection = async () => {
       try {
         await testDynamoDBConnection();
         setConnectionStatus('Connected');
+        console.log('DynamoDB connection successful');
       } catch (error) {
         setConnectionStatus('Connection Failed');
         setError(`DynamoDB connection failed: ${error.message}`);
+        console.error('DynamoDB connection failed:', error);
       }
     };
     checkConnection();
   }, []);
 
+  useEffect(() => {
+    const fetchDataForPage = async (page) => {
+      console.log('Fetching data for page:', page);
+      if (!selectedGoat) {
+        setError('Please select a Goat ID');
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await fetchData(selectedGoat, page, perPage, sortField, sortDirection);
+        console.log('Fetched data for page:', result);
+
+        setData(result.data);
+        setTotalRows(result.totalRows);
+
+        if (result.data.length === 0) {
+          setError('No data found for the selected Goat ID');
+        }
+      } catch (error) {
+        console.error('Error fetching data for page:', error);
+        setError(`Failed to fetch data: ${error.message}`);
+      }
+      setLoading(false);
+    };
+
+    fetchDataForPage(currentPage);
+  }, [selectedGoat, currentPage, perPage, sortField, sortDirection]);
+
+  const columns = useMemo(
+    () => [
+      {
+        name: 'Timestamp',
+        selector: row => row.timestamp || 'N/A',
+        sortable: true,
+        sortField: 'timestamp',
+        reorder: true,
+        grow: 2,
+      },
+      {
+        name: 'Goat ID',
+        selector: row => row.goatId || 'N/A',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Tag ID',
+        selector: row => row.tagId || 'N/A',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Hub ID',
+        selector: row => row.hubId || 'N/A',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Temperature',
+        selector: row => row.temperature !== undefined ? row.temperature : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Ambient Temperature',
+        selector: row => row.ambientTemperature !== undefined ? row.ambientTemperature : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Ambient Humidity',
+        selector: row => row.ambientHumidity !== undefined ? row.ambientHumidity : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Battery',
+        selector: row => row.battery !== undefined ? row.battery : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'Proximity',
+        selector: row => row.proximity !== undefined ? row.proximity : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+      {
+        name: 'RSSI',
+        selector: row => row.rssi !== undefined ? row.rssi : '0',
+        sortable: false,
+        reorder: true,
+        grow: 1,
+      },
+    ],
+    []
+  );
+
+  const customStyles = {
+    table: {
+      style: {
+        minWidth: '100%',
+      },
+    },
+    rows: {
+      style: {
+        minHeight: '72px',
+      },
+    },
+    headCells: {
+      style: {
+        paddingLeft: '8px',
+        paddingRight: '8px',
+        wordBreak: 'break-word',
+      },
+    },
+    cells: {
+      style: {
+        paddingLeft: '8px',
+        paddingRight: '8px',
+        wordBreak: 'break-word',
+      },
+    },
+  };
+
+  const handleSort = (column, sortDirection) => {
+    if (column.sortField === 'timestamp') {
+      console.log('Sorting by timestamp:', sortDirection);
+      setSortDirection(sortDirection);
+    }
+  };
+
   const handleFetchData = async () => {
-    if (!selectedTag) {
-      setError('Please select a Tag ID');
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = page => {
+    console.log('Page changed to:', page);
+    setCurrentPage(page);
+  };
+
+  const handlePerRowsChange = (newPerPage) => {
+    console.log('Rows per page changed to:', newPerPage);
+    setPerPage(newPerPage);
+    setCurrentPage(1);
+  };
+
+  const handleDateRangeChange = (start, end) => {
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const handleDownloadCSV = async () => {
+    if (!selectedGoat || !startDate || !endDate) {
+      setError('Please select a Goat ID and date range for CSV download');
       return;
     }
 
-    setLoading(true);
-    setError(null);
     try {
-      const result = await fetchData(selectedTag, sortOrder);
-      setData(result);
-      setTotalEntries(result.length);  // Update total entries
-      if (result.length === 0) {
-        setError('No data found for the selected Tag ID');
-      }
+      setLoading(true);
+      const csvData = await fetchCSV(selectedGoat, startDate.toISOString(), endDate.toISOString());
+      const blob = new Blob([csvData], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('hidden', '');
+      a.setAttribute('href', url);
+      a.setAttribute('download', `goat_data_${selectedGoat}_${startDate.toISOString()}_${endDate.toISOString()}.csv`);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      setError(`Failed to fetch data: ${error.message}`);
+      console.error('Error downloading CSV:', error);
+      setError(`Failed to download CSV: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -59,24 +231,37 @@ function App() {
             DynamoDB Status: <span className={connectionStatus === 'Connected' ? 'connected' : 'disconnected'}>{connectionStatus}</span>
           </div>
           <div className="total-entries">
-            Total Entries: {totalEntries}
+            Total Entries: {totalRows}
           </div>
         </div>
         <div className="controls">
-          <TagSelector selectedTag={selectedTag} setSelectedTag={setSelectedTag} />
-          <div className="sort-order-selector">
-            <label htmlFor="sortOrder">Sort Order:</label>
-            <select id="sortOrder" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
-          </div>
+          <GoatSelector selectedGoat={selectedGoat} setSelectedGoat={setSelectedGoat} />
           <button onClick={handleFetchData} disabled={loading} className="fetch-button">
             {loading ? 'Fetching...' : 'Fetch Data'}
           </button>
+          <DateRangePicker onDateRangeChange={handleDateRangeChange} />
+          <button onClick={handleDownloadCSV} disabled={loading} className="download-button">
+            {loading ? 'Downloading...' : 'Download CSV'}
+          </button>
         </div>
         {error && <div className="error-message">{error}</div>}
-        <DataViewer data={data} />
+        <DataTable
+          title="Goat Monitoring Data"
+          columns={columns}
+          data={data}
+          progressPending={loading}
+          pagination
+          paginationServer
+          paginationTotalRows={totalRows}
+          onChangeRowsPerPage={handlePerRowsChange}
+          onChangePage={handlePageChange}
+          paginationPerPage={perPage}
+          paginationRowsPerPageOptions={[10, 20, 30, 40, 50]}
+          onSort={handleSort}
+          sortServer
+          defaultSortField="timestamp"
+          defaultSortAsc={false}
+        />
       </main>
     </div>
   );

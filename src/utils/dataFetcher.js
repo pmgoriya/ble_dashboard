@@ -1,86 +1,189 @@
 // src/utils/dataFetcher.js
 import { ddbDocClient } from '../aws-config';
 import { ScanCommand } from "@aws-sdk/client-dynamodb";
+import { unmarshall } from "@aws-sdk/util-dynamodb";
 
-export const fetchData = async (tagId, sortOrder = 'asc') => {
+// Helper function to perform a complete scan of the DynamoDB table
+async function scanAllItems(params) {
+  let items = [];
+  let lastEvaluatedKey = null;
+
+  do {
+    if (lastEvaluatedKey) {
+      params.ExclusiveStartKey = lastEvaluatedKey;
+    }
+
+    const command = new ScanCommand(params);
+    const response = await ddbDocClient.send(command);
+
+    items = items.concat(response.Items);
+    lastEvaluatedKey = response.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return items;
+}
+
+// Function to fetch data based on goatId, pagination, sorting, etc.
+export const fetchData = async (goatId, page = 1, perPage = 10, sortField = 'timestamp', sortDirection = 'desc') => {
+  console.log('Fetching data with params:', { goatId, page, perPage, sortField, sortDirection });
   let params = {
     TableName: 'BLETesting',
   };
 
-  if (tagId !== "All") {
-    params.FilterExpression = '#tag = :tagId';
+  if (goatId !== "All") {
+    params.FilterExpression = '#deviceName = :goatId';
     params.ExpressionAttributeNames = {
-      '#tag': 'tagId',
+      '#deviceName': 'deviceName',
     };
     params.ExpressionAttributeValues = {
-      ':tagId': { S: tagId },
+      ':goatId': { S: goatId },
     };
   }
 
   try {
-    const command = new ScanCommand(params);
-    const { Items } = await ddbDocClient.send(command);
+    console.log('Scanning DynamoDB with params:', params);
+    const Items = await scanAllItems(params);
+    console.log('Received Items from DynamoDB:', Items.length);
 
-    const data = Items.map(item => ({
-      timestamp: new Date(item.timestamp.S).toLocaleString(),
-      timestampRaw: item.timestamp.S,
-      tagId: item.tagId.S,
-      deviceName: item.deviceName.S,
-      hubId: item.hubId.S,
-      temperature: item.temperature.N,
-      ambientTemperature: item.ambientTemperature.N,
-      ambientHumidity: item.ambientHumidity.N,
-      battery: item.battery.N,
-      proximity: item.proximity.N,
-      rssi: item.rssi.N
-    }));
-
-    data.sort((a, b) => {
-      return sortOrder === 'asc' 
-        ? new Date(a.timestampRaw) - new Date(b.timestampRaw)
-        : new Date(b.timestampRaw) - new Date(a.timestampRaw);
+    const data = Items.map(item => {
+      const unmarshalledItem = unmarshall(item);
+      return {
+        timestamp: unmarshalledItem.timestamp || 'N/A',
+        goatId: unmarshalledItem.deviceName || 'N/A',
+        tagId: unmarshalledItem.tagId || 'N/A',
+        hubId: unmarshalledItem.hubId || 'N/A',
+        temperature: unmarshalledItem.temperature || 'N/A',
+        ambientTemperature: unmarshalledItem.ambientTemperature || 'N/A',
+        ambientHumidity: unmarshalledItem.ambientHumidity || 'N/A',
+        battery: unmarshalledItem.battery || 'N/A',
+        proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
+        rssi: unmarshalledItem.rssi || 'N/A'
+      };
     });
 
-    return data;
+    console.log('Transformed data:', data.length);
 
+    // Sort the data by timestamp
+    data.sort((a, b) => {
+      const dateA = new Date(a.timestamp).getTime();
+      const dateB = new Date(b.timestamp).getTime();
+      return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+
+    // Paginate the data
+    const totalRows = data.length;
+    const startIndex = (page - 1) * perPage;
+    const paginatedData = data.slice(startIndex, startIndex + perPage);
+
+    console.log('Returning paginated data:', { dataLength: paginatedData.length, totalRows });
+    return {
+      data: paginatedData,
+      totalRows
+    };
   } catch (error) {
     console.error('Error scanning DynamoDB:', error);
     throw new Error(`Failed to fetch data: ${error.message}`);
   }
 };
 
-export const fetchTagIds = async () => {
-  const params = {
-    TableName: 'BLETesting',
-    ProjectionExpression: 'tagId', // Only retrieve the tagId attribute
-  };
-
-  try {
-    const command = new ScanCommand(params);
-    const { Items } = await ddbDocClient.send(command);
-
-    // Extract and return unique tagIds
-    const tagIds = [...new Set(Items.map(item => item.tagId.S))];
-    return tagIds;
-
-  } catch (error) {
-    console.error('Error fetching tagIds from DynamoDB:', error);
-    throw new Error(`Failed to fetch tagIds: ${error.message}`);
-  }
-};
-
+// Function to test DynamoDB connection
 export const testDynamoDBConnection = async () => {
   const params = {
     TableName: 'BLETesting',
     Limit: 1,
   };
-
   try {
+    console.log('Testing DynamoDB connection');
     const command = new ScanCommand(params);
-    const { Items } = await ddbDocClient.send(command);
+    const result = await ddbDocClient.send(command);
+    console.log('DynamoDB connection test result:', result);
     return true;
   } catch (error) {
     console.error('DynamoDB connection test failed:', error);
     throw error;
+  }
+};
+
+// Function to fetch unique goat IDs
+export const fetchGoatIds = async () => {
+  const params = {
+    TableName: 'BLETesting',
+    ProjectionExpression: 'deviceName',
+  };
+  try {
+    console.log('Fetching goat IDs');
+    const Items = await scanAllItems(params);
+    console.log('Received goat IDs:', Items.length);
+    const goatIds = [...new Set(Items.map(item => item.deviceName.S))];
+    console.log('Unique goat IDs:', goatIds.length);
+    return goatIds;
+  } catch (error) {
+    console.error('Error fetching goatIds from DynamoDB:', error);
+    throw new Error(`Failed to fetch goatIds: ${error.message}`);
+  }
+};
+
+// Updated fetchCSV function
+export const fetchCSV = async (goatId, startDate, endDate) => {
+  console.log('Fetching CSV data with params:', { goatId, startDate, endDate });
+
+  // Validate date inputs
+  if (!startDate || !endDate || new Date(startDate) > new Date(endDate)) {
+    console.error('Invalid date range:', { startDate, endDate });
+    throw new Error('Invalid date range: Start date must be before or equal to end date.');
+  }
+
+  let params = {
+    TableName: 'BLETesting',
+    FilterExpression: '#timestamp BETWEEN :startDate AND :endDate',
+    ExpressionAttributeNames: {
+      '#timestamp': 'timestamp'
+    },
+    ExpressionAttributeValues: {
+      ':startDate': { S: startDate },
+      ':endDate': { S: endDate }
+    }
+  };
+
+  if (goatId !== "All") {
+    params.FilterExpression += ' AND #deviceName = :goatId';
+    params.ExpressionAttributeNames['#deviceName'] = 'deviceName';
+    params.ExpressionAttributeValues[':goatId'] = { S: goatId };
+  }
+
+  try {
+    console.log('Scanning DynamoDB with params:', params);
+    const Items = await scanAllItems(params);
+    console.log('Received Items from DynamoDB:', Items.length);
+
+    const data = Items.map(item => {
+      const unmarshalledItem = unmarshall(item);
+      return {
+        timestamp: unmarshalledItem.timestamp || 'N/A',
+        goatId: unmarshalledItem.deviceName || 'N/A',
+        tagId: unmarshalledItem.tagId || 'N/A',
+        hubId: unmarshalledItem.hubId || 'N/A',
+        temperature: unmarshalledItem.temperature || 'N/A',
+        ambientTemperature: unmarshalledItem.ambientTemperature || 'N/A',
+        ambientHumidity: unmarshalledItem.ambientHumidity || 'N/A',
+        battery: unmarshalledItem.battery || 'N/A',
+        proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
+        rssi: unmarshalledItem.rssi || 'N/A'
+      };
+    });
+
+    // Sort the data by timestamp in descending order
+    data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Convert to CSV
+    const header = Object.keys(data[0]).join(',') + '\n';
+    const rows = data.map(item => Object.values(item).join(',') + '\n').join('');
+    const csv = header + rows;
+
+    console.log('Generated CSV data');
+    return csv;
+  } catch (error) {
+    console.error('Error fetching CSV data from DynamoDB:', error);
+    throw new Error(`Failed to fetch CSV data: ${error.message}`);
   }
 };

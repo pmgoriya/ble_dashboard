@@ -5,15 +5,19 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.629.0",
     "@aws-sdk/lib-dynamodb": "^3.629.0",
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.0",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "aws-sdk": "^2.1674.0",
     "axios": "^1.7.4",
-    "react": "^18.3.1",
-    "react-datepicker": "^7.3.0",
-    "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1",
+    "react": "^17.x.x",
+    "react-data-table-component": "^7.x.x",
+    "react-datepicker": "^4.x.x",
+    "react-dom": "^17.x.x",
+    "react-scripts": "^5.0.1",
+    "react-table": "^7.8.0",
+    "styled-components": "^5.x.x",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
