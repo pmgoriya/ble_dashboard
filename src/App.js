@@ -2,13 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import DataTable from 'react-data-table-component';
 import Header from './components/Header';
 import GoatSelector from './components/GoatSelector';
+import HubSelector from './components/HubSelector';
+import BatteryStatus from './components/BatteryStatus';
 import DateRangePicker from './components/DateRangePicker';
-import { fetchData, testDynamoDBConnection, fetchCSV } from './utils/dataFetcher';
+import { fetchData, testDynamoDBConnection, fetchCSV, fetchHubGoatMapping } from './utils/dataFetcher';
 import './App.css';
 
 function App() {
-  const [selectedGoat, setSelectedGoat] = useState('');
+  const [showBatteryStatus, setShowBatteryStatus] = useState(false);
+  const [selectedGoat, setSelectedGoat] = useState('All');
   const [data, setData] = useState([]);
+  const [selectedHub, setSelectedHub] = useState('All');
+  const [hubGoatMapping, setHubGoatMapping] = useState({});
   const [loading, setLoading] = useState(false);
   const [totalRows, setTotalRows] = useState(0);
   const [perPage, setPerPage] = useState(10);
@@ -21,39 +26,50 @@ function App() {
   const [endDate, setEndDate] = useState(null);
 
   useEffect(() => {
-    const checkConnection = async () => {
+    const initializeApp = async () => {
       try {
         await testDynamoDBConnection();
         setConnectionStatus('Connected');
         console.log('DynamoDB connection successful');
+        
+        const mapping = await fetchHubGoatMapping();
+        setHubGoatMapping(mapping);
       } catch (error) {
         setConnectionStatus('Connection Failed');
         setError(`DynamoDB connection failed: ${error.message}`);
         console.error('DynamoDB connection failed:', error);
       }
     };
-    checkConnection();
+    initializeApp();
   }, []);
+
+  const hubIds = useMemo(() => ['All', ...Object.keys(hubGoatMapping)], [hubGoatMapping]);
+
+  const availableGoats = useMemo(() => {
+    if (selectedHub === 'All') {
+      return ['All', ...new Set(Object.values(hubGoatMapping).flat())];
+    }
+    return ['All', ...(hubGoatMapping[selectedHub] || [])];
+  }, [selectedHub, hubGoatMapping]);
+
+  useEffect(() => {
+    setSelectedGoat('All');
+  }, [selectedHub]);
+
 
   useEffect(() => {
     const fetchDataForPage = async (page) => {
-      console.log('Fetching data for page:', page);
-      if (!selectedGoat) {
-        setError('Please select a Goat ID');
-        return;
-      }
-
       setLoading(true);
       setError(null);
       try {
-        const result = await fetchData(selectedGoat, page, perPage, sortField, sortDirection);
+        const result = await fetchData(selectedHub, selectedGoat, page, perPage, sortField, sortDirection);
         console.log('Fetched data for page:', result);
 
         setData(result.data);
         setTotalRows(result.totalRows);
 
         if (result.data.length === 0) {
-          setError('No data found for the selected Goat ID');
+          setError('No data found for the selected Hub ID and Goat ID');
         }
       } catch (error) {
         console.error('Error fetching data for page:', error);
@@ -63,7 +79,8 @@ function App() {
     };
 
     fetchDataForPage(currentPage);
-  }, [selectedGoat, currentPage, perPage, sortField, sortDirection]);
+  }, [selectedHub, selectedGoat, currentPage, perPage, sortField, sortDirection]);
+
 
   const columns = useMemo(
     () => [
@@ -72,70 +89,60 @@ function App() {
         selector: row => row.timestamp || 'N/A',
         sortable: true,
         sortField: 'timestamp',
-        reorder: true,
         grow: 2,
       },
       {
         name: 'Goat ID',
         selector: row => row.goatId || 'N/A',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Tag ID',
         selector: row => row.tagId || 'N/A',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Hub ID',
         selector: row => row.hubId || 'N/A',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Temperature',
         selector: row => row.temperature !== undefined ? row.temperature : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Ambient Temperature',
         selector: row => row.ambientTemperature !== undefined ? row.ambientTemperature : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Ambient Humidity',
         selector: row => row.ambientHumidity !== undefined ? row.ambientHumidity : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Battery',
         selector: row => row.battery !== undefined ? row.battery : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'Proximity',
         selector: row => row.proximity !== undefined ? row.proximity : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
       {
         name: 'RSSI',
         selector: row => row.rssi !== undefined ? row.rssi : '0',
         sortable: false,
-        reorder: true,
         grow: 1,
       },
     ],
@@ -150,21 +157,22 @@ function App() {
     },
     rows: {
       style: {
-        minHeight: '72px',
+        minHeight: '52px',
       },
     },
     headCells: {
       style: {
         paddingLeft: '8px',
         paddingRight: '8px',
-        wordBreak: 'break-word',
+        fontSize: '14px',
+        fontWeight: 'bold',
       },
     },
     cells: {
       style: {
         paddingLeft: '8px',
         paddingRight: '8px',
-        wordBreak: 'break-word',
+        fontSize: '14px',
       },
     },
   };
@@ -197,23 +205,36 @@ function App() {
   };
 
   const handleDownloadCSV = async () => {
-    if (!selectedGoat || !startDate || !endDate) {
-      setError('Please select a Goat ID and date range for CSV download');
+    if (!startDate || !endDate) {
+      setError('Please select a date range for CSV download');
       return;
     }
-
+  
+    setLoading(true);
+    setError(null);
+  
     try {
-      setLoading(true);
-      const csvData = await fetchCSV(selectedGoat, startDate.toISOString(), endDate.toISOString());
+      const csvData = await fetchCSV(
+        selectedHub,
+        selectedGoat,
+        startDate.toISOString(),
+        endDate.toISOString()
+      );
+  
+      if (!csvData || csvData.trim() === '') {
+        throw new Error('No data available for the selected criteria');
+      }
+  
       const blob = new Blob([csvData], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.setAttribute('hidden', '');
       a.setAttribute('href', url);
-      a.setAttribute('download', `goat_data_${selectedGoat}_${startDate.toISOString()}_${endDate.toISOString()}.csv`);
+      a.setAttribute('download', `goat_data_${selectedHub}_${selectedGoat}_${startDate.toISOString()}_${endDate.toISOString()}.csv`);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      console.log('CSV download completed');
     } catch (error) {
       console.error('Error downloading CSV:', error);
       setError(`Failed to download CSV: ${error.message}`);
@@ -221,6 +242,7 @@ function App() {
       setLoading(false);
     }
   };
+  
 
   return (
     <div className="App">
@@ -235,7 +257,8 @@ function App() {
           </div>
         </div>
         <div className="controls">
-          <GoatSelector selectedGoat={selectedGoat} setSelectedGoat={setSelectedGoat} />
+        <HubSelector selectedHub={selectedHub} setSelectedHub={setSelectedHub} hubIds={hubIds} />
+          <GoatSelector selectedGoat={selectedGoat} setSelectedGoat={setSelectedGoat} availableGoats={availableGoats} />
           <button onClick={handleFetchData} disabled={loading} className="fetch-button">
             {loading ? 'Fetching...' : 'Fetch Data'}
           </button>
@@ -243,7 +266,11 @@ function App() {
           <button onClick={handleDownloadCSV} disabled={loading} className="download-button">
             {loading ? 'Downloading...' : 'Download CSV'}
           </button>
+          <button onClick={() => setShowBatteryStatus(!showBatteryStatus)}>
+            {showBatteryStatus ? 'Hide Battery Status' : 'Show Battery Status'}
+          </button>
         </div>
+        {showBatteryStatus && <BatteryStatus data={data} />}
         {error && <div className="error-message">{error}</div>}
         <DataTable
           title="Goat Monitoring Data"
@@ -261,6 +288,9 @@ function App() {
           sortServer
           defaultSortField="timestamp"
           defaultSortAsc={false}
+          customStyles={customStyles}
+          responsive
+          striped
         />
       </main>
     </div>

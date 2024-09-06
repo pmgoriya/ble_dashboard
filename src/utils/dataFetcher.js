@@ -23,21 +23,67 @@ async function scanAllItems(params) {
   return items;
 }
 
+export const fetchHubGoatMapping = async () => {
+  const params = {
+    TableName: 'BLETesting',
+    ProjectionExpression: 'hubId, deviceName'
+  };
+
+  try {
+    console.log('Fetching Hub-Goat mapping');
+    const Items = await scanAllItems(params);
+    console.log('Received items:', Items.length);
+
+    const mapping = {};
+    Items.forEach(item => {
+      const hubId = item.hubId.S;
+      const goatId = item.deviceName.S;
+      if (!mapping[hubId]) {
+        mapping[hubId] = new Set();
+      }
+      mapping[hubId].add(goatId);
+    });
+
+    // Convert Sets to Arrays
+    for (const hubId in mapping) {
+      mapping[hubId] = Array.from(mapping[hubId]);
+    }
+
+    console.log('Hub-Goat mapping created:', Object.keys(mapping).length, 'hubs');
+    return mapping;
+  } catch (error) {
+    console.error('Error fetching Hub-Goat mapping from DynamoDB:', error);
+    throw new Error(`Failed to fetch Hub-Goat mapping: ${error.message}`);
+  }
+};
+
 // Function to fetch data based on goatId, pagination, sorting, etc.
-export const fetchData = async (goatId, page = 1, perPage = 10, sortField = 'timestamp', sortDirection = 'desc') => {
-  console.log('Fetching data with params:', { goatId, page, perPage, sortField, sortDirection });
+export const fetchData = async (hubId, goatId, page = 1, perPage = 10, sortField = 'timestamp', sortDirection = 'desc') => {
+  console.log('Fetching data with params:', { hubId, goatId, page, perPage, sortField, sortDirection });
   let params = {
     TableName: 'BLETesting',
   };
 
+  let filterExpressions = [];
+  let expressionAttributeNames = {};
+  let expressionAttributeValues = {};
+
+  if (hubId !== "All") {
+    filterExpressions.push('#hubId = :hubId');
+    expressionAttributeNames['#hubId'] = 'hubId';
+    expressionAttributeValues[':hubId'] = { S: hubId };
+  }
+
   if (goatId !== "All") {
-    params.FilterExpression = '#deviceName = :goatId';
-    params.ExpressionAttributeNames = {
-      '#deviceName': 'deviceName',
-    };
-    params.ExpressionAttributeValues = {
-      ':goatId': { S: goatId },
-    };
+    filterExpressions.push('#deviceName = :goatId');
+    expressionAttributeNames['#deviceName'] = 'deviceName';
+    expressionAttributeValues[':goatId'] = { S: goatId };
+  }
+
+  if (filterExpressions.length > 0) {
+    params.FilterExpression = filterExpressions.join(' AND ');
+    params.ExpressionAttributeNames = expressionAttributeNames;
+    params.ExpressionAttributeValues = expressionAttributeValues;
   }
 
   try {
@@ -86,6 +132,24 @@ export const fetchData = async (goatId, page = 1, perPage = 10, sortField = 'tim
   }
 };
 
+export const fetchHubIds = async () => {
+  const params = {
+    TableName: 'BLETesting',
+    ProjectionExpression: 'hubId',
+  };
+  try {
+    console.log('Fetching hub IDs');
+    const Items = await scanAllItems(params);
+    console.log('Received hub IDs:', Items.length);
+    const hubIds = [...new Set(Items.map(item => item.hubId.S))];
+    console.log('Unique hub IDs:', hubIds.length);
+    return hubIds;
+  } catch (error) {
+    console.error('Error fetching hubIds from DynamoDB:', error);
+    throw new Error(`Failed to fetch hubIds: ${error.message}`);
+  }
+};
+
 // Function to test DynamoDB connection
 export const testDynamoDBConnection = async () => {
   const params = {
@@ -105,17 +169,25 @@ export const testDynamoDBConnection = async () => {
 };
 
 // Function to fetch unique goat IDs
-export const fetchGoatIds = async () => {
+export const fetchGoatIdsByHub = async (hubId) => {
   const params = {
     TableName: 'BLETesting',
-    ProjectionExpression: 'deviceName',
+    ProjectionExpression: 'deviceName, hubId',
   };
+
+  if (hubId !== 'All') {
+    params.FilterExpression = 'hubId = :hubId';
+    params.ExpressionAttributeValues = {
+      ':hubId': { S: hubId },
+    };
+  }
+
   try {
-    console.log('Fetching goat IDs');
+    console.log('Fetching goat IDs for hub:', hubId);
     const Items = await scanAllItems(params);
-    console.log('Received goat IDs:', Items.length);
+    console.log('Received items:', Items.length);
     const goatIds = [...new Set(Items.map(item => item.deviceName.S))];
-    console.log('Unique goat IDs:', goatIds.length);
+    console.log('Unique goat IDs for hub:', goatIds.length);
     return goatIds;
   } catch (error) {
     console.error('Error fetching goatIds from DynamoDB:', error);
@@ -123,12 +195,17 @@ export const fetchGoatIds = async () => {
   }
 };
 
-// Updated fetchCSV function
-export const fetchCSV = async (goatId, startDate, endDate) => {
-  console.log('Fetching CSV data with params:', { goatId, startDate, endDate });
 
-  // Validate date inputs
-  if (!startDate || !endDate || new Date(startDate) > new Date(endDate)) {
+// Updated fetchCSV function
+export const fetchCSV = async (hubId, goatId, startDate, endDate) => {
+  console.log('Fetching CSV data with params:', { hubId, goatId, startDate, endDate });
+
+  if (!startDate || !endDate) {
+    console.error('Invalid date range:', { startDate, endDate });
+    throw new Error('Invalid date range: Both start date and end date must be provided.');
+  }
+
+  if (new Date(startDate) > new Date(endDate)) {
     console.error('Invalid date range:', { startDate, endDate });
     throw new Error('Invalid date range: Start date must be before or equal to end date.');
   }
@@ -145,7 +222,13 @@ export const fetchCSV = async (goatId, startDate, endDate) => {
     }
   };
 
-  if (goatId !== "All") {
+  if (hubId && hubId !== "All") {
+    params.FilterExpression += ' AND #hubId = :hubId';
+    params.ExpressionAttributeNames['#hubId'] = 'hubId';
+    params.ExpressionAttributeValues[':hubId'] = { S: hubId };
+  }
+
+  if (goatId && goatId !== "All") {
     params.FilterExpression += ' AND #deviceName = :goatId';
     params.ExpressionAttributeNames['#deviceName'] = 'deviceName';
     params.ExpressionAttributeValues[':goatId'] = { S: goatId };
@@ -155,6 +238,10 @@ export const fetchCSV = async (goatId, startDate, endDate) => {
     console.log('Scanning DynamoDB with params:', params);
     const Items = await scanAllItems(params);
     console.log('Received Items from DynamoDB:', Items.length);
+
+    if (Items.length === 0) {
+      throw new Error('No data found for the specified criteria');
+    }
 
     const data = Items.map(item => {
       const unmarshalledItem = unmarshall(item);
@@ -180,7 +267,7 @@ export const fetchCSV = async (goatId, startDate, endDate) => {
     const rows = data.map(item => Object.values(item).join(',') + '\n').join('');
     const csv = header + rows;
 
-    console.log('Generated CSV data');
+    console.log('Generated CSV data with', data.length, 'rows');
     return csv;
   } catch (error) {
     console.error('Error fetching CSV data from DynamoDB:', error);
