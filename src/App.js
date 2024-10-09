@@ -128,6 +128,12 @@ function App() {
         grow: 1,
       },
       {
+        name: 'Light Sensor',
+        selector: row => row.lightSensor !== undefined ? row.lightSensor : '0',
+        sortable: false,
+        grow: 1,
+      },  
+      {
         name: 'Battery',
         selector: row => row.battery !== undefined ? row.battery : '0',
         sortable: false,

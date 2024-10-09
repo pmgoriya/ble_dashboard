@@ -36,12 +36,14 @@ export const fetchHubGoatMapping = async () => {
 
     const mapping = {};
     Items.forEach(item => {
-      const hubId = item.hubId.S;
-      const goatId = item.deviceName.S;
-      if (!mapping[hubId]) {
-        mapping[hubId] = new Set();
+      const hubId = item.hubId && item.hubId.S ? item.hubId.S : 'unknown';
+      const goatId = item.deviceName && item.deviceName.S ? item.deviceName.S : 'unknown';
+      if (hubId !== 'unknown' && goatId !== 'unknown') {
+        if (!mapping[hubId]) {
+          mapping[hubId] = new Set();
+        }
+        mapping[hubId].add(goatId);
       }
-      mapping[hubId].add(goatId);
     });
 
     // Convert Sets to Arrays
@@ -103,7 +105,8 @@ export const fetchData = async (hubId, goatId, page = 1, perPage = 10, sortField
         ambientHumidity: unmarshalledItem.ambientHumidity || 'N/A',
         battery: unmarshalledItem.battery || 'N/A',
         proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
-        rssi: unmarshalledItem.rssi || 'N/A'
+        rssi: unmarshalledItem.rssi || 'N/A',
+        lightSensor: unmarshalledItem.lightSensor || 'N/A'  // Add this line
       };
     });
 
@@ -255,9 +258,11 @@ export const fetchCSV = async (hubId, goatId, startDate, endDate) => {
         ambientHumidity: unmarshalledItem.ambientHumidity || 'N/A',
         battery: unmarshalledItem.battery || 'N/A',
         proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
-        rssi: unmarshalledItem.rssi || 'N/A'
+        rssi: unmarshalledItem.rssi || 'N/A',
+        lightSensor: unmarshalledItem.lightSensor || 'N/A'  // Add this line
       };
     });
+
 
     // Sort the data by timestamp in descending order
     data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
