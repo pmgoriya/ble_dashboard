@@ -7,6 +7,8 @@ import BatteryStatus from './components/BatteryStatus';
 import DateRangePicker from './components/DateRangePicker';
 import { fetchData, testDynamoDBConnection, fetchCSV, fetchHubGoatMapping } from './utils/dataFetcher';
 import './App.css';
+import { getDiscoveredColumns } from './utils/dataFetcher';
+
 
 function App() {
   const [showBatteryStatus, setShowBatteryStatus] = useState(false);
@@ -24,6 +26,13 @@ function App() {
   const [sortDirection, setSortDirection] = useState('desc');
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
+  const [dynamicColumns, setDynamicColumns] = useState([]);
+
+  const baseColumnNames = [
+    'timestamp', 'goatId', 'tagId', 'hubId', 'temperature', 
+    'ambientTemperature', 'ambientHumidity', 'battery', 
+    'proximity', 'rssi', 'lightSensor'
+  ];
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -83,7 +92,9 @@ function App() {
 
 
   const columns = useMemo(
-    () => [
+    () => {
+      // Start with existing hardcoded columns
+      const baseColumns = [
       {
         name: 'Timestamp',
         selector: row => row.timestamp || 'N/A',
@@ -151,9 +162,35 @@ function App() {
         sortable: false,
         grow: 1,
       },
-    ],
-    []
+    ];
+
+    const additionalColumns = dynamicColumns.map(colName => ({
+      name: colName
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .trim(),
+      selector: row => row[colName],  // Direct value without any transformation
+      sortable: false,
+      grow: 1,
+    }));
+
+    return [...baseColumns, ...additionalColumns];
+  },
+  [dynamicColumns] // Only recompute when dynamicColumns changes
+);
+
+useEffect(() => {
+  const discoveredCols = getDiscoveredColumns();
+  const newColumns = discoveredCols.filter(col => 
+    !baseColumnNames.includes(col) && 
+    !dynamicColumns.includes(col)
   );
+  
+  if (newColumns.length > 0) {
+    setDynamicColumns(prev => [...prev, ...newColumns]);
+  }
+}, [data, dynamicColumns, baseColumnNames]);
+
 
   const customStyles = {
     table: {

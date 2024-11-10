@@ -3,6 +3,8 @@ import { ddbDocClient } from '../aws-config';
 import { ScanCommand } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 
+let discoveredColumns = [];
+
 // Helper function to perform a complete scan of the DynamoDB table
 async function scanAllItems(params) {
   let items = [];
@@ -93,9 +95,21 @@ export const fetchData = async (hubId, goatId, page = 1, perPage = 10, sortField
     const Items = await scanAllItems(params);
     console.log('Received Items from DynamoDB:', Items.length);
 
+    Items.forEach(item => {
+      const unmarshalledItem = unmarshall(item);
+      Object.keys(unmarshalledItem).forEach(key => {
+        if (!discoveredColumns.includes(key)) {
+          discoveredColumns.push(key);
+          console.log('Discovered new column:', key);
+        }
+      });
+    });
+
+
     const data = Items.map(item => {
       const unmarshalledItem = unmarshall(item);
-      return {
+      const baseData = {
+        // Keep existing hardcoded mappings
         timestamp: unmarshalledItem.timestamp || 'N/A',
         goatId: unmarshalledItem.deviceName || 'N/A',
         tagId: unmarshalledItem.tagId || 'N/A',
@@ -106,10 +120,18 @@ export const fetchData = async (hubId, goatId, page = 1, perPage = 10, sortField
         battery: unmarshalledItem.battery || 'N/A',
         proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
         rssi: unmarshalledItem.rssi || 'N/A',
-        lightSensor: unmarshalledItem.lightSensor || 'N/A'  // Add this line
+        lightSensor: unmarshalledItem.lightSensor || 'N/A'
       };
-    });
 
+      // Add dynamic columns
+      discoveredColumns.forEach(key => {
+        if (!Object.keys(baseData).includes(key)) {
+          baseData[key] = unmarshalledItem[key];  // Remove any transformation
+        }
+      });
+    
+      return baseData;
+    });
     console.log('Transformed data:', data.length);
 
     // Sort the data by timestamp
@@ -134,6 +156,8 @@ export const fetchData = async (hubId, goatId, page = 1, perPage = 10, sortField
     throw new Error(`Failed to fetch data: ${error.message}`);
   }
 };
+
+export const getDiscoveredColumns = () => discoveredColumns;
 
 export const fetchHubIds = async () => {
   const params = {
@@ -248,28 +272,42 @@ export const fetchCSV = async (hubId, goatId, startDate, endDate) => {
 
     const data = Items.map(item => {
       const unmarshalledItem = unmarshall(item);
-      return {
-        timestamp: unmarshalledItem.timestamp || 'N/A',
-        goatId: unmarshalledItem.deviceName || 'N/A',
-        tagId: unmarshalledItem.tagId || 'N/A',
-        hubId: unmarshalledItem.hubId || 'N/A',
-        temperature: unmarshalledItem.temperature || 'N/A',
-        ambientTemperature: unmarshalledItem.ambientTemperature || 'N/A',
-        ambientHumidity: unmarshalledItem.ambientHumidity || 'N/A',
-        battery: unmarshalledItem.battery || 'N/A',
-        proximity: unmarshalledItem.proximity !== undefined ? unmarshalledItem.proximity : 'N/A',
-        rssi: unmarshalledItem.rssi || 'N/A',
-        lightSensor: unmarshalledItem.lightSensor || 'N/A'  // Add this line
+      const baseData = {
+        // Keep existing hardcoded mappings without transformations
+        timestamp: unmarshalledItem.timestamp,
+        goatId: unmarshalledItem.deviceName,
+        tagId: unmarshalledItem.tagId,
+        hubId: unmarshalledItem.hubId,
+        temperature: unmarshalledItem.temperature,
+        ambientTemperature: unmarshalledItem.ambientTemperature,
+        ambientHumidity: unmarshalledItem.ambientHumidity,
+        battery: unmarshalledItem.battery,
+        proximity: unmarshalledItem.proximity,
+        rssi: unmarshalledItem.rssi,
+        lightSensor: unmarshalledItem.lightSensor
       };
+    
+      // Add discovered columns without transformations
+      discoveredColumns.forEach(key => {
+        if (!Object.keys(baseData).includes(key)) {
+          baseData[key] = unmarshalledItem[key];
+        }
+      });
+    
+      return baseData;
     });
-
 
     // Sort the data by timestamp in descending order
     data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
+    // Get all possible headers (including dynamic ones)
+    const headers = Object.keys(data[0]);
+    
     // Convert to CSV
-    const header = Object.keys(data[0]).join(',') + '\n';
-    const rows = data.map(item => Object.values(item).join(',') + '\n').join('');
+    const header = headers.join(',') + '\n';
+    const rows = data.map(item => 
+      headers.map(header => item[header]).join(',') + '\n'
+    ).join('');
     const csv = header + rows;
 
     console.log('Generated CSV data with', data.length, 'rows');
